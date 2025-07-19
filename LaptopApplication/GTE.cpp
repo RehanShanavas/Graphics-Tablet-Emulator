@@ -16,17 +16,60 @@ const float PRESS_THRESHOLD = 0.1f;
 
 int screenWidth, screenHeight;
 
-void moveMouse(int x, int y) {
-    SetCursorPos(x, y);
+// Pointer input injection typedef
+typedef BOOL (WINAPI* InjectSyntheticPointerInput_t)(
+    HSYNTHETICPOINTERDEVICE, const POINTER_TYPE_INFO*, UINT32
+);
+
+InjectSyntheticPointerInput_t InjectSyntheticPointerInputFunc = nullptr;
+HSYNTHETICPOINTERDEVICE hPenPointer = nullptr;
+
+void initPenInjection() {
+    HMODULE user32 = GetModuleHandleA("user32.dll");
+    InjectSyntheticPointerInputFunc = (InjectSyntheticPointerInput_t)GetProcAddress(user32, "InjectSyntheticPointerInput");
+
+    if (!InjectSyntheticPointerInputFunc) {
+        std::cerr << "InjectSyntheticPointerInput not supported on this version of Windows.\n";
+        exit(1);
+    }
+
+    hPenPointer = CreateSyntheticPointerDevice(PT_PEN, 1, POINTER_FEEDBACK_DEFAULT);
+    if (!hPenPointer) {
+        std::cerr << "Failed to create synthetic pen pointer.\n";
+        exit(1);
+    }
 }
 
-void mouseDown() {
-    mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0);
+void injectPen(int x, int y, float pressure, bool isDown, bool isHovering) {
+    POINTER_TYPE_INFO info = {};
+    info.type = PT_PEN;
+
+    POINTER_PEN_INFO penInfo = {};
+    penInfo.pointerInfo.pointerType = PT_PEN;
+    penInfo.pointerInfo.pointerId = 0;
+    penInfo.pointerInfo.ptPixelLocation.x = x;
+    penInfo.pointerInfo.ptPixelLocation.y = y;
+    penInfo.pointerInfo.pointerFlags = POINTER_FLAG_INRANGE;
+
+    if (isHovering) {
+        penInfo.pointerInfo.pointerFlags |= POINTER_FLAG_UPDATE;
+    } else if (isDown) {
+        penInfo.pointerInfo.pointerFlags |= POINTER_FLAG_INCONTACT | POINTER_FLAG_DOWN;
+    } else {
+        penInfo.pointerInfo.pointerFlags |= POINTER_FLAG_UP;
+    }
+
+    penInfo.pressure = static_cast<UINT32>(pressure * 1024);
+    penInfo.tiltX = 0;  // Tilt X in degrees
+    penInfo.tiltY = 0;  // Tilt Y in degrees
+    penInfo.penFlags = PEN_FLAG_NONE;
+    penInfo.penMask = PEN_MASK_PRESSURE;
+
+    info.penInfo = penInfo;
+
+    InjectSyntheticPointerInputFunc(hPenPointer, &info, 1);
 }
 
-void mouseUp() {
-    mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0);
-}
 
 std::vector<std::string> split(const std::string& str, char delimiter) {
     std::stringstream ss(str);
@@ -54,9 +97,11 @@ void setupAdbReverse() {
 int main() {
     setupAdbReverse();
 
-    GetSystemMetrics(SM_CXSCREEN); // Trigger system initialization
+    // Get screen dimensions
     screenWidth = GetSystemMetrics(SM_CXSCREEN);
     screenHeight = GetSystemMetrics(SM_CYSCREEN);
+
+    initPenInjection();
 
     WSADATA wsaData;
     WSAStartup(MAKEWORD(2, 2), &wsaData);
@@ -76,7 +121,7 @@ int main() {
 
     char buffer[1024];
     std::string leftover;
-    bool mousePressed = false;
+    bool isPenDown = false;
 
     while (true) {
         int bytesReceived = recv(clientSocket, buffer, sizeof(buffer) - 1, 0);
@@ -99,30 +144,33 @@ int main() {
 
             int mappedX = int(x / TABLET_WIDTH * screenWidth);
             int mappedY = int(y / TABLET_HEIGHT * screenHeight);
-            moveMouse(mappedX, mappedY);
 
             if (action == "hover") {
-                if (mousePressed) {
-                    mouseUp();
-                    mousePressed = false;
-                }
+                injectPen(mappedX, mappedY, 0.0f, false, true);
+                isPenDown = false;
             } else {
                 float pressure = std::stof(action);
-                if (pressure > PRESS_THRESHOLD && !mousePressed) {
-                    mouseDown();
-                    mousePressed = true;
-                } else if (pressure <= PRESS_THRESHOLD && mousePressed) {
-                    mouseUp();
-                    mousePressed = false;
-                }
+                bool press = pressure > PRESS_THRESHOLD;
+                injectPen(mappedX, mappedY, pressure, press, false);
+                isPenDown = press;
             }
         }
-
-        leftover = data; // Keep partial data
+        leftover = data;
     }
 
     closesocket(clientSocket);
     closesocket(serverSocket);
     WSACleanup();
+
+    if (hPenPointer) {
+        DestroySyntheticPointerDevice(hPenPointer);
+    }
+
     return 0;
 }
+/* Compile command for Windows:
+
+cd %USERPROFILE%\OneDrive\Desktop\Graphics-Tablet-Emulator
+cl .\LaptopApplication\GTE.cpp /Fe:.\Executables\GTE.exe user32.lib ws2_32.lib
+
+*/
