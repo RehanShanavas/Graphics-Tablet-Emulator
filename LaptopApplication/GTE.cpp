@@ -12,7 +12,7 @@
 
 const int TABLET_WIDTH = 2560;
 const int TABLET_HEIGHT = 1600;
-const float PRESS_THRESHOLD = 0.1f;
+const float PRESS_THRESHOLD = 0.0f;
 
 int screenWidth, screenHeight;
 
@@ -40,7 +40,7 @@ void initPenInjection() {
     }
 }
 
-void injectPen(int x, int y, float pressure, bool isDown, bool isHovering) {
+void injectPen(int x, int y, float pressure, float tiltX, float tiltY, bool isDown, bool isHovering) {
     POINTER_TYPE_INFO info = {};
     info.type = PT_PEN;
 
@@ -60,10 +60,10 @@ void injectPen(int x, int y, float pressure, bool isDown, bool isHovering) {
     }
 
     penInfo.pressure = static_cast<UINT32>(pressure * 1024);
-    penInfo.tiltX = 0;  // Tilt X in degrees
-    penInfo.tiltY = 0;  // Tilt Y in degrees
+    penInfo.tiltX = tiltX;  // Tilt X in degrees
+    penInfo.tiltY = tiltY;  // Tilt Y in degrees
     penInfo.penFlags = PEN_FLAG_NONE;
-    penInfo.penMask = PEN_MASK_PRESSURE;
+    penInfo.penMask = PEN_MASK_PRESSURE | PEN_MASK_TILT_X | PEN_MASK_TILT_Y;
 
     info.penInfo = penInfo;
 
@@ -98,13 +98,17 @@ int main() {
     setupAdbReverse();
 
     // Get screen dimensions
+    SetProcessDPIAware();  // Must be first!
+    GetSystemMetrics(SM_CXSCREEN); // Trigger system initialization
     screenWidth = GetSystemMetrics(SM_CXSCREEN);
     screenHeight = GetSystemMetrics(SM_CYSCREEN);
+
+    std::cout << "Screen dimensions: " << screenWidth << "x" << screenHeight << std::endl;
 
     initPenInjection();
 
     WSADATA wsaData;
-    WSAStartup(MAKEWORD(2, 2), &wsaData);
+    WSAStartup(MAKEWORD(2, 2), &wsaData); // Initialize Winsock
 
     SOCKET serverSocket = socket(AF_INET, SOCK_STREAM, 0);
     sockaddr_in serverAddr{};
@@ -136,25 +140,34 @@ int main() {
             data.erase(0, pos + 1);
 
             auto parts = split(line, ',');
-            if (parts.size() != 3) continue;
+            if (parts.size() != 5) continue;
 
             float x = std::stof(parts[0]);
             float y = std::stof(parts[1]);
-            std::string action = parts[2];
+            float pressure = std::stof(parts[2]);
+            float tiltRadians = std::stof(parts[3]);
+            float orientation = std::stof(parts[4]);
+
+            float tilt = tiltRadians * (180.0f / 3.1415f); // Convert radians to degrees
+            float tiltX = tilt * cosf(orientation);
+            float tiltY = tilt * sinf(orientation);
 
             int mappedX = int(x / TABLET_WIDTH * screenWidth);
             int mappedY = int(y / TABLET_HEIGHT * screenHeight);
 
-            if (action == "hover") {
-                injectPen(mappedX, mappedY, 0.0f, false, true);
+            if (pressure < 0.0f) {
+                injectPen(mappedX, mappedY, 0.0f, tiltX, tiltY, false, true);
                 isPenDown = false;
             } else {
-                float pressure = std::stof(action);
                 bool press = pressure > PRESS_THRESHOLD;
-                injectPen(mappedX, mappedY, pressure, press, false);
+                injectPen(mappedX, mappedY, pressure, tiltX, tiltY, press, false);
                 isPenDown = press;
             }
+
+            // std::cout << "TiltX :" << tiltX << "TiltY :" << tiltY << std::endl;
+
         }
+        // Store any leftover data for the next iteration
         leftover = data;
     }
 

@@ -55,7 +55,11 @@ class MainActivity : AppCompatActivity() {
             val x = event.x
             val y = event.y
             val pressure = event.pressure
-            val data = "%.1f,%.1f,%.2f\n".format(x, y, pressure)
+
+            val axisTilt = event.getAxisValue(MotionEvent.AXIS_TILT)
+            val orientation = event.orientation
+
+            val data = "%.1f,%.1f,%.2f,%.3f,%.3f\n".format(x, y, pressure,axisTilt,orientation)
 
             writerHandler.post {
                 try {
@@ -73,7 +77,12 @@ class MainActivity : AppCompatActivity() {
         if (event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS && event.action == MotionEvent.ACTION_HOVER_MOVE) {
             val x = event.x
             val y = event.y
-            val data = "%.1f,%.1f,hover\n".format(x, y)
+            val pressure = -1.0
+
+            val axisTilt = event.getAxisValue(MotionEvent.AXIS_TILT)
+            val orientation = event.orientation
+
+            val data = "%.1f,%.1f,%.2f,%.3f,%.3f\n".format(x, y, pressure,axisTilt,orientation)
 
             writerHandler.post {
                 try {
@@ -82,8 +91,6 @@ class MainActivity : AppCompatActivity() {
                     Log.e("SOCKET_TEST", "Hover send failed: ${e.message}")
                 }
             }
-
-            Log.d("HOVER", data)
             return true
         }
         return super.onGenericMotionEvent(event)
