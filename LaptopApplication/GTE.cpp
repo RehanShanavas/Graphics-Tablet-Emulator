@@ -142,8 +142,8 @@ int main() {
             auto parts = split(line, ',');
             if (parts.size() != 5) continue;
 
-            float x = std::stof(parts[0]);
-            float y = std::stof(parts[1]);
+            float fractionX = std::stof(parts[0]);
+            float fractionY = std::stof(parts[1]);
             float pressure = std::stof(parts[2]);
             float tiltRadians = std::stof(parts[3]);
             float orientation = std::stof(parts[4]);
@@ -152,8 +152,8 @@ int main() {
             float tiltX = tilt * cosf(orientation);
             float tiltY = tilt * sinf(orientation);
 
-            int mappedX = int(x / TABLET_WIDTH * screenWidth);
-            int mappedY = int(y / TABLET_HEIGHT * screenHeight);
+            int mappedX = int(fractionX * screenWidth);
+            int mappedY = int(fractionY * screenHeight);
 
             if (pressure < 0.0f) {
                 injectPen(mappedX, mappedY, 0.0f, tiltX, tiltY, false, true);
