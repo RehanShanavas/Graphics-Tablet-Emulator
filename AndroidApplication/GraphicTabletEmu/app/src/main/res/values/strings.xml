@@ -1,4 +1,11 @@
 <resources>
     <string name="app_name">GraphicTabletEmu</string>
     <string name="todo">TODO</string>
+    <string name="settings">SETTINGS</string>
+    <string name="calibrate">CALIBRATE</string>
+    <string name="revert">REVERT</string>
+    <string name="save">SAVE</string>
+    <string name="screen">SCREEN</string>
+    <string name="aspect_ratio">ASPECT RATIO</string>
+    <string name="scale">SCALE</string>
 </resources>

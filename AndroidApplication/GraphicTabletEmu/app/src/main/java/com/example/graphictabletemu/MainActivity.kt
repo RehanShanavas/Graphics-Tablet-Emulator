@@ -1,22 +1,26 @@
 package com.example.graphictabletemu
 
+import android.annotation.SuppressLint
 import android.os.*
+import android.util.DisplayMetrics
 import android.util.Log
+import android.view.Gravity
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
+import android.view.WindowManager
+import android.widget.Button
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageButton
+import android.widget.LinearLayout
+import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.constraintlayout.widget.ConstraintLayout
 import java.io.OutputStream
 import java.net.Socket
 
 class MainActivity : AppCompatActivity() {
-
-    private lateinit var calibrationFrame: FrameLayout
-    private lateinit var burgerButton: ImageButton
-    private lateinit var burgerConstraintLayout : ConstraintLayout
-    private lateinit var calibrateButton: ImageButton
 
     private val IP_ADDRESS = "127.0.0.1"
     private val ANDROID_PORT = 7000
@@ -27,31 +31,201 @@ class MainActivity : AppCompatActivity() {
     private lateinit var socketWriterThread: HandlerThread
     private lateinit var writerHandler: Handler
 
-    private var calibrationMode: Boolean = false
-    private var lastX1: Int = 0
-    private var lastY1: Int = 0
-    private var lastX2: Int = 0
-    private var lastY2: Int = 0
+    var isCalibrating = false
+    var aspectRatioValue : Float = 1280f/720
+    var scaleValue : Int = 100
+    var aspectRatioPrevious : Float = aspectRatioValue
+    var scalePrevious : Int = scaleValue
 
-    fun initializeUIBehaviour(){
-        burgerConstraintLayout.visibility = View.GONE
-        var visible = false
-        burgerButton.setOnClickListener{
-            Log.d("MainActivity", "Burger button clicked!")
-            burgerConstraintLayout.visibility = View.VISIBLE
-            if (!visible) {
-                burgerConstraintLayout.visibility = View.VISIBLE
-                visible = true
+    private lateinit var btnScreen : Button
+    private lateinit var btnCalibrate : Button
+    private lateinit var btnSettings : Button
+    private lateinit var mainFrame : FrameLayout
+    private lateinit var frameScreen : FrameLayout
+    private lateinit var frameCalibrate : FrameLayout
+    private var frameEmulated: FrameLayout? = null
+
+    private fun initializeUIBehaviour(){
+        var currentActiveButton : Button? = null
+        var calibrate_buttons_frame : LinearLayout = findViewById(R.id.calibrate_buttons_frame)
+        var btnCalibrateRevert : Button = findViewById(R.id.btn_calibrate_revert)
+        var btnCalibrateSave : Button = findViewById(R.id.btn_calibrate_save)
+        var edittextCalibrateAspectRatio : EditText = findViewById(R.id.edittext_calibrate_aspect_ratio)
+        var edittextCalibrateScale : EditText = findViewById(R.id.edittext_calibrate_scale)
+        var textCalibrateAspectRatio : TextView = findViewById(R.id.text_calibrate_aspect_ratio)
+        var textCalibrateScale : TextView = findViewById(R.id.text_calibrate_scale)
+
+        fun setCalibrateAspectRatioText(aspectRatioString: String) {
+            val aspectRatioFloat = aspectRatioString.toFloatOrNull()
+            var formattedRatio = "INVALID INPUT"
+            if (aspectRatioFloat != null) {
+                formattedRatio = String.format("%.2f", aspectRatioFloat)
+            }
+            val aspectRatioText = "ASPECT RATIO : $formattedRatio [ enter as : WIDTH HEIGHT ]"
+            textCalibrateAspectRatio.text = aspectRatioText
+
+
+        }
+
+        fun setCalibrateScaleText(scaleString : String){
+            var scaleStringValue = scaleString
+            if (scaleString.length > 3){
+                scaleStringValue = scaleString.substring(0,3)
+            }
+            val scaleText = "SCALE : $scaleString [ enter as : integer between 1 to 100 ]"
+            textCalibrateScale.setText(scaleText)
+        }
+
+        fun activateButton(button: Button){
+            // Change button color
+            if (currentActiveButton != null && currentActiveButton != button) {
+                currentActiveButton?.backgroundTintList = null
+                currentActiveButton?.setTextColor(getColor(R.color.primary))
+            }
+            button.backgroundTintList = getColorStateList(R.color.primary)
+            button.setTextColor(getColor(R.color.black))
+            currentActiveButton = button
+
+            // Button behaviour
+            if (button == btnScreen){
+                frameCalibrate.setVisibility(View.GONE)
+                frameScreen.setVisibility(View.VISIBLE)
+            }
+            else if (button == btnCalibrate){
+                frameScreen.setVisibility(View.GONE)
+                frameCalibrate.setVisibility(View.VISIBLE)
+
+
+                // Handle calibrate button click
+                isCalibrating = true
+                calibrate_buttons_frame.setVisibility(View.VISIBLE)
+                setCalibrateAspectRatioText(aspectRatioValue.toString())
+                setCalibrateScaleText(scaleValue.toString())
+            }
+            else if (button == btnSettings){
+                frameScreen.setVisibility(View.GONE)
+                frameCalibrate.setVisibility(View.GONE)
+            }
+        }
+        activateButton(btnScreen)
+
+        btnScreen.setOnClickListener {
+            activateButton(btnScreen)
+        }
+
+        btnCalibrate.setOnClickListener {
+            activateButton(btnCalibrate)
+        }
+        fun setFrameCalibrate(aspectRatio : Float, scale : Int){
+            val baseWidth = mainFrame.width
+            val baseHeight = mainFrame.height
+
+            // Scale by percentage
+            var targetWidth = baseWidth * scale / 100
+            var targetHeight = baseHeight * scale / 100
+
+
+            // Apply aspect ratio adjustment
+            val currentRatio = targetWidth.toFloat() / targetHeight.toFloat()
+
+            if (currentRatio > aspectRatio) {
+                // Too wide, reduce width
+                targetWidth = (targetHeight * aspectRatio).toInt()
             } else {
-                burgerConstraintLayout.visibility = View.GONE
-                visible = false
+                // Too tall, reduce height
+                targetHeight = (targetWidth / aspectRatio).toInt()
+            }
+
+            val layoutParams = FrameLayout.LayoutParams(targetWidth, targetHeight)
+            layoutParams.gravity = Gravity.CENTER  // center in parent
+            frameEmulated?.layoutParams = layoutParams
+        }
+
+        btnCalibrateSave.setOnClickListener {
+            isCalibrating = false
+            aspectRatioPrevious = aspectRatioValue
+            scalePrevious = scaleValue
+            setFrameCalibrate(aspectRatioValue,scaleValue)
+            calibrate_buttons_frame.setVisibility(View.GONE)
+        }
+        btnCalibrateRevert.setOnClickListener {
+            isCalibrating = false
+            setFrameCalibrate(aspectRatioPrevious,scalePrevious)
+            calibrate_buttons_frame.setVisibility(View.GONE)
+        }
+
+        fun handleAspectRatio(text : String){
+            val aspectRatio = text.split(" ")
+            if (aspectRatio.size == 2) {
+                // check if both values are numbers
+                val width = aspectRatio[0].toFloatOrNull()
+                val height = aspectRatio[1].toFloatOrNull()
+                if (width != null && height != null) {
+                    aspectRatioValue = (width / height)
+                    edittextCalibrateAspectRatio.setText(text)
+                    setFrameCalibrate(aspectRatioValue,scaleValue)
+                    setCalibrateAspectRatioText(aspectRatioValue.toString())
+                }
+                else {
+                    edittextCalibrateAspectRatio.setText("")
+                    setCalibrateAspectRatioText("INVALID INPUT")
+                }
+            }
+            else {
+                edittextCalibrateAspectRatio.setText("")
+                setCalibrateAspectRatioText("INVALID INPUT")
+            }
+        }
+        edittextCalibrateAspectRatio.setOnFocusChangeListener { v, hasFocus ->
+            if (!hasFocus) {
+                val text = edittextCalibrateAspectRatio.text.toString()
+                handleAspectRatio(text)
+            }
+        }
+        edittextCalibrateAspectRatio.setOnKeyListener { v, keyCode, event ->
+            if (event.action == KeyEvent.ACTION_DOWN && keyCode == KeyEvent.KEYCODE_ENTER) {
+                val text = edittextCalibrateAspectRatio.text.toString()
+                handleAspectRatio(text)
+                true
+            } else {
+                false
+            }
+
+        }
+
+        fun handleScale(text : String){
+            val scale = text.toIntOrNull()
+            if (scale != null && scale > 0 && scale <= 100) {
+                scaleValue = scale
+                edittextCalibrateScale.setText(text)
+                setFrameCalibrate(aspectRatioValue,scaleValue)
+                setCalibrateScaleText(scaleValue.toString())
+            }
+            else {
+                edittextCalibrateScale.setText("")
+                setCalibrateScaleText("INVALID INPUT")
+            }
+        }
+        edittextCalibrateScale.setOnFocusChangeListener { v, hasFocus ->
+            if (!hasFocus) {
+                val text = edittextCalibrateScale.text.toString()
+                handleScale(text)
+            }
+        }
+        edittextCalibrateScale.setOnKeyListener { v, keyCode, event ->
+            if (event.action == KeyEvent.ACTION_DOWN && keyCode == KeyEvent.KEYCODE_ENTER) {
+                val text = edittextCalibrateScale.text.toString()
+                handleScale(text)
+                true
+            } else {
+                false
             }
         }
 
-        var calibrationMode = false
-        calibrateButton.setOnClickListener{
-            calibrationMode = !calibrationMode
+        mainFrame.post{
+            setFrameCalibrate(aspectRatioValue,scaleValue)
         }
+
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -59,10 +233,14 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         // Initialize UI elements
-        burgerButton = findViewById(R.id.btn_burger)
-        burgerConstraintLayout = findViewById(R.id.cl_burger)
-        calibrationFrame = findViewById(R.id.frame_calibration)
-        calibrateButton = findViewById(R.id.btn_calibrate)
+        btnScreen = findViewById(R.id.btn_screen)
+        btnCalibrate = findViewById(R.id.btn_calibrate)
+        btnSettings = findViewById(R.id.btn_settings)
+        mainFrame = findViewById(R.id.main_frame)
+        frameScreen = findViewById(R.id.frame_screen)
+        frameCalibrate = findViewById(R.id.frame_calibrate)
+        frameEmulated = findViewById(R.id.emulated_screen)
+
         initializeUIBehaviour()
 
         // Start socket writer thread
@@ -95,22 +273,45 @@ class MainActivity : AppCompatActivity() {
     // ON TOUCH EVENT
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS || event.getToolType(0) == MotionEvent.TOOL_TYPE_FINGER) {
-            val x = event.x
-            val y = event.y
-            val pressure = event.pressure
+            if (frameEmulated == null) {
+                return false
+            }
 
-            Log.d("TOUCH_EVENT", "x: $x, y: $y, pressure: $pressure")
+            val rawX = event.x
+            val rawY = event.y
 
-            val axisTilt = event.getAxisValue(MotionEvent.AXIS_TILT)
-            val orientation = event.orientation
+            // check if x and y within emulated_frame
+            val frameLocation = IntArray(2)
+            frameEmulated!!.getLocationOnScreen(frameLocation)
+            val frameLeft = frameLocation[0]
+            val frameTop = frameLocation[1]
+            val frameWidth = frameEmulated!!.width.toFloat()
+            val frameHeight = frameEmulated!!.height.toFloat()
 
-            val data = "%.1f,%.1f,%.2f,%.3f,%.3f\n".format(x, y, pressure,axisTilt,orientation)
+            val localX = rawX - frameLeft
+            val localY = rawY - frameTop
 
-            writerHandler.post {
-                try {
-                    outputStream?.write(data.toByteArray())
-                } catch (e: Exception) {
-                    Log.e("SOCKET_TEST", "Touch send failed: ${e.message}")
+            if (localX in 0f..frameWidth && localY in 0f..frameHeight) {
+                val fractionX = localX / frameWidth
+                val fractionY = localY / frameHeight
+                val pressure = event.pressure
+                val axisTilt = event.getAxisValue(MotionEvent.AXIS_TILT)
+                val orientation = event.orientation
+
+                val data = "%.4f,%.4f,%.2f,%.3f,%.3f\n".format(
+                    fractionX,
+                    fractionY,
+                    pressure,
+                    axisTilt,
+                    orientation
+                )
+
+                writerHandler.post {
+                    try {
+                        outputStream?.write(data.toByteArray())
+                    } catch (e: Exception) {
+                        Log.e("SOCKET_TEST", "Touch send failed: ${e.message}")
+                    }
                 }
             }
         }
@@ -120,20 +321,45 @@ class MainActivity : AppCompatActivity() {
     // ON HOVER EVENT
     override fun onGenericMotionEvent(event: MotionEvent): Boolean {
         if (event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS && event.action == MotionEvent.ACTION_HOVER_MOVE) {
-            val x = event.x
-            val y = event.y
-            val pressure = -1.0
+            if (frameEmulated == null) {
+                return false
+            }
 
-            val axisTilt = event.getAxisValue(MotionEvent.AXIS_TILT)
-            val orientation = event.orientation
+            val rawX = event.x
+            val rawY = event.y
 
-            val data = "%.1f,%.1f,%.2f,%.3f,%.3f\n".format(x, y, pressure,axisTilt,orientation)
+            // check if x and y within emulated_frame
+            val frameLocation = IntArray(2)
+            frameEmulated!!.getLocationOnScreen(frameLocation)
+            val frameLeft = frameLocation[0]
+            val frameTop = frameLocation[1]
+            val frameWidth = frameEmulated!!.width.toFloat()
+            val frameHeight = frameEmulated!!.height.toFloat()
 
-            writerHandler.post {
-                try {
-                    outputStream?.write(data.toByteArray())
-                } catch (e: Exception) {
-                    Log.e("SOCKET_TEST", "Hover send failed: ${e.message}")
+            val localX = rawX - frameLeft
+            val localY = rawY - frameTop
+
+            if (localX in 0f..frameWidth && localY in 0f..frameHeight) {
+                val fractionX = localX / frameWidth
+                val fractionY = localY / frameHeight
+                val pressure = -1.0
+                val axisTilt = event.getAxisValue(MotionEvent.AXIS_TILT)
+                val orientation = event.orientation
+
+                val data = "%.4f,%.4f,%.2f,%.3f,%.3f\n".format(
+                    fractionX,
+                    fractionY,
+                    pressure,
+                    axisTilt,
+                    orientation
+                )
+
+                writerHandler.post {
+                    try {
+                        outputStream?.write(data.toByteArray())
+                    } catch (e: Exception) {
+                        Log.e("SOCKET_TEST", "Touch send failed: ${e.message}")
+                    }
                 }
             }
             return true

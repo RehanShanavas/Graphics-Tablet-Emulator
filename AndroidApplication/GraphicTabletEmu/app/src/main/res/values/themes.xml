@@ -1,8 +1,10 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Base application theme. -->
-    <style name="Base.Theme.GraphicTabletEmu" parent="Theme.Material3.DayNight.NoActionBar">
+    <style name="Base.Theme.GraphicTabletEmu" parent="Theme.AppCompat.DayNight.NoActionBar">
         <!-- Customize your light theme here. -->
-        <!-- <item name="colorPrimary">@color/my_light_primary</item> -->
+         <item name="colorPrimary">@color/primary</item>
+        <item name="android:fontFamily">serif-monospace</item>
+        <item name="android:textStyle">bold</item>
     </style>
 
     <style name="Theme.GraphicTabletEmu" parent="Base.Theme.GraphicTabletEmu" />
