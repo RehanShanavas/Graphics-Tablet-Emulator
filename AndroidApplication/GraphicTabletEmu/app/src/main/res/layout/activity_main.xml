@@ -60,7 +60,7 @@
                     android:gravity="center"
                     android:padding="3dp"
                     android:textColor="@color/primary"
-                    android:layout_weight="1"/>
+                    android:layout_weight="0"/>
 
             </LinearLayout>
 

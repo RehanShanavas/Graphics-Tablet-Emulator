@@ -17,6 +17,10 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.constraintlayout.widget.ConstraintLayout
+import androidx.lifecycle.lifecycleScope
+import com.example.graphictabletemu.Datastore.DataKeyValueStore
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 import java.io.OutputStream
 import java.net.Socket
 
@@ -31,11 +35,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var socketWriterThread: HandlerThread
     private lateinit var writerHandler: Handler
 
+    private lateinit var store: DataKeyValueStore
+
     var isCalibrating = false
     var aspectRatioValue : Float = 1280f/720
     var scaleValue : Int = 100
-    var aspectRatioPrevious : Float = aspectRatioValue
-    var scalePrevious : Int = scaleValue
+    var aspectRatioPrevious : Float = 1280f/720
+    var scalePrevious : Int = 100
+    var ignoreFingerValue: Boolean = false
 
     private lateinit var btnScreen : Button
     private lateinit var btnCalibrate : Button
@@ -116,7 +123,16 @@ class MainActivity : AppCompatActivity() {
         btnCalibrate.setOnClickListener {
             activateButton(btnCalibrate)
         }
-        fun setFrameCalibrate(aspectRatio : Float, scale : Int){
+        fun setFrameCalibrate(aspectRatio : Float, scale : Int, saveToDatastore : Boolean){
+            Log.d("TEST", scale.toString())
+
+            if (saveToDatastore){
+                lifecycleScope.launch {
+                    store.setAspectRatio(aspectRatio)
+                    store.setFrameScale(scale)
+                }
+            }
+
             val baseWidth = mainFrame.width
             val baseHeight = mainFrame.height
 
@@ -143,15 +159,17 @@ class MainActivity : AppCompatActivity() {
 
         btnCalibrateSave.setOnClickListener {
             isCalibrating = false
-            aspectRatioPrevious = aspectRatioValue
-            scalePrevious = scaleValue
-            setFrameCalibrate(aspectRatioValue,scaleValue)
+            setFrameCalibrate(aspectRatioValue,scaleValue,true)
             calibrate_buttons_frame.setVisibility(View.GONE)
+            activateButton(btnScreen)
         }
         btnCalibrateRevert.setOnClickListener {
             isCalibrating = false
-            setFrameCalibrate(aspectRatioPrevious,scalePrevious)
+            aspectRatioValue = aspectRatioPrevious
+            scaleValue = scalePrevious
+            setFrameCalibrate(aspectRatioPrevious,scalePrevious,false)
             calibrate_buttons_frame.setVisibility(View.GONE)
+            activateButton(btnScreen)
         }
 
         fun handleAspectRatio(text : String){
@@ -163,7 +181,7 @@ class MainActivity : AppCompatActivity() {
                 if (width != null && height != null) {
                     aspectRatioValue = (width / height)
                     edittextCalibrateAspectRatio.setText(text)
-                    setFrameCalibrate(aspectRatioValue,scaleValue)
+                    setFrameCalibrate(aspectRatioValue,scaleValue,false)
                     setCalibrateAspectRatioText(aspectRatioValue.toString())
                 }
                 else {
@@ -177,7 +195,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
         edittextCalibrateAspectRatio.setOnFocusChangeListener { v, hasFocus ->
-            if (!hasFocus) {
+            if (!hasFocus && isCalibrating) {
                 val text = edittextCalibrateAspectRatio.text.toString()
                 handleAspectRatio(text)
             }
@@ -198,7 +216,7 @@ class MainActivity : AppCompatActivity() {
             if (scale != null && scale > 0 && scale <= 100) {
                 scaleValue = scale
                 edittextCalibrateScale.setText(text)
-                setFrameCalibrate(aspectRatioValue,scaleValue)
+                setFrameCalibrate(aspectRatioValue,scaleValue,false)
                 setCalibrateScaleText(scaleValue.toString())
             }
             else {
@@ -207,7 +225,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
         edittextCalibrateScale.setOnFocusChangeListener { v, hasFocus ->
-            if (!hasFocus) {
+            if (!hasFocus && isCalibrating) {
                 val text = edittextCalibrateScale.text.toString()
                 handleScale(text)
             }
@@ -223,7 +241,34 @@ class MainActivity : AppCompatActivity() {
         }
 
         mainFrame.post{
-            setFrameCalibrate(aspectRatioValue,scaleValue)
+            setFrameCalibrate(aspectRatioValue,scaleValue,false)
+
+            lifecycleScope.launch {
+                store.aspectRatio.collectLatest { ratio ->
+                    if (ratio != null) {
+                        aspectRatioValue = ratio
+                        aspectRatioPrevious = ratio
+                        setFrameCalibrate(aspectRatioValue,scaleValue,false)
+                    }
+                }
+            }
+            lifecycleScope.launch {
+                store.frameScale.collectLatest { scale ->
+                    if (scale != null) {
+                        scaleValue = scale
+                        scalePrevious = scale
+                        setFrameCalibrate(aspectRatioValue,scaleValue,false)
+                    }
+                }
+            }
+            lifecycleScope.launch {
+                store.ignoreFinger.collectLatest { ignore ->
+                    if (ignore != null) {
+                        ignoreFingerValue = ignore
+                        setFrameCalibrate(aspectRatioValue,scaleValue,false)
+                    }
+                }
+            }
         }
 
     }
@@ -240,6 +285,9 @@ class MainActivity : AppCompatActivity() {
         frameScreen = findViewById(R.id.frame_screen)
         frameCalibrate = findViewById(R.id.frame_calibrate)
         frameEmulated = findViewById(R.id.emulated_screen)
+
+        // read datastore values
+        store = DataKeyValueStore(this)
 
         initializeUIBehaviour()
 
